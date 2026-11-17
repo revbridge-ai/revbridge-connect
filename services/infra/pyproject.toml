@@ -1,0 +1,25 @@
+[project]
+name = "mail-infra"
+version = "0.1.0"
+description = "Mail infra — deliverability jobs (services/infra/scripts) run by the scheduler"
+requires-python = ">=3.11"
+dependencies = [
+    "mail-shared",
+    # Job metrics in Redis (mail_infra.metrics_sink)
+    "redis==7.4.1",
+    # domain_auth_audit.py and warmup_spf_authz.py resolve TXT/MX/A records directly. (cryptography,
+    # which the audit uses to derive the DKIM public key, is pinned in mail-shared; do not pin it again here.)
+    "dnspython==2.8.0",
+    # Misc
+    "python-dotenv==1.2.2",
+]
+
+[tool.uv.sources]
+mail-shared = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mail_infra"]

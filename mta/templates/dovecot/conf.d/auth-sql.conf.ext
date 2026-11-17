@@ -1,0 +1,14 @@
+passdb {
+  driver = sql
+  args = /etc/dovecot/dovecot-sql.conf.ext
+}
+
+userdb {
+  driver = sql
+  args = /etc/dovecot/dovecot-sql.conf.ext
+}
+
+passdb {
+  driver = sql
+  args = /etc/dovecot/dovecot-sql-api-keys.conf.ext
+}

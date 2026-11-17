@@ -1,0 +1,32 @@
+# Body of the panel site. Imported by the Caddyfile (production, with TLS) and by Caddyfile.dev.
+# Panel = static files baked into the Caddy image (/srv/panel); the API is under /api
+# (same origin, no CORS).
+encode gzip
+
+header {
+	X-Content-Type-Options nosniff
+	X-Frame-Options DENY
+	Referrer-Policy strict-origin-when-cross-origin
+	-Server
+}
+
+# /metrics is for the internal network only. It has to be a handle: in Caddy, handle/handle_path run
+# before respond, so a bare "respond /api/metrics 404" would never fire.
+handle /api/metrics* {
+	respond 404
+}
+
+handle_path /api/* {
+	reverse_proxy api:8001
+}
+
+handle {
+	root * /srv/panel
+	# assets with a hash in their name: long cache; the rest (index.html and panel routes): revalidate
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@pages not path /assets/*
+	header @pages Cache-Control "no-cache"
+	try_files {path} /index.html
+	file_server
+}

@@ -1,0 +1,5 @@
+# Routes VERP bounces (rbm subdomains) to the 'bounce-handler' pipe (master.cf)
+# instead of virtual_transport (lmtp/dovecot). transport_maps takes precedence over
+# virtual_transport, and the full VERP recipient (bounces+<rcpt>=<dom>@rbm...) is kept
+# and passed to the script as ${recipient}.
+/^bounces(\+.*)?@rbm[0-9]+\.[^@]+$/   bounce-handler:

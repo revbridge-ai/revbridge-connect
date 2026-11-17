@@ -1,0 +1,91 @@
+[project]
+name = "revbridge-connect"
+version = "0.1.0"
+description = "RevBridge Connect: self-hosted email infrastructure (API, MTA, tracking, deliverability) with no email provider"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "RevBridge" }]
+
+[tool.uv.workspace]
+members = [
+    "shared",
+    "services/api",
+    "services/tracking",
+    "services/milter",
+    "services/infra",
+]
+
+# connect-lib is vendored in libs/ (no private package registry is used).
+[tool.uv.sources]
+connect-lib = { path = "libs/connect-lib" }
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "pytest-mock==3.15.1",
+    "ruff==0.15.20",
+    "mypy==2.2.0",
+    "httpx==0.28.1",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = [
+    "services/infra/scripts/**",    # deliverability jobs run by the scheduler
+]
+
+[tool.ruff.lint]
+# Real signals stay enforced (B904, RUF006, F821, etc.).
+
+select = ["E", "F", "W", "I", "B", "UP", "N", "RUF"]
+ignore = [
+    "E501",   # line length — formatter handles it
+    "B008",   # Pydantic Field(...) default is canonical (false positive)
+    "N818",   # legacy ApiError/ApiException — too many call sites
+    "N806",   # CONST_LIKE function-locals are intentional
+    "RUF002", # ambiguous unicode in DOCSTRINGS (math notation, PT-BR chars)
+    "RUF003", # ambiguous unicode in COMMENTS
+    # Pre-existing patterns that are not bugs:
+    "RUF013", # implicit Optional (`x: int = None`); runtime is fine, style nit
+    "E722",   # bare `except:` — legacy webhook/redis/db error swallowing
+    "W293",   # whitespace on blank line — formatter handles it
+    "F811",   # redefined name — there are two such legit cases in webhook utils
+    "N805",   # Pydantic v1-style validators take `cls` not `self` — legacy
+    "N802",   # function name should be lowercase — legacy compat (NULL, ASC, etc.)
+    "F841",   # unused local — pre-existing dead branches in stats/webhook services
+    "RUF005", # list/tuple concat preference — style nit
+    "RUF012", # mutable class default needs ClassVar — Pydantic v1 model patterns
+    "RUF022", # __all__ not sorted — order is intentional in many places
+    "UP038",  # isinstance(x, (A, B)) vs A | B — both work
+    "RUF001", # ambiguous unicode in string literals (PT-BR + emoji icons)
+    "UP035", # typing.ContextManager / typing.Dict deprecated — used by infra repositories
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/app/app.py" = ["E402"]
+"**/app/api/app.py" = ["E402"]        # mail-api OTel + lazy router imports
+"**/app/tracking/app.py" = ["E402"]   # mail-tracking OTel before FastAPI import
+"**/app/consumer.py" = ["E402"]
+"**/run.py" = ["E402"]
+"**/worker.py" = ["E402"]
+"**/main.py" = ["E402"]
+"**/__init__.py" = ["F401", "F403", "F405", "I001", "E402"]
+"**/services/dashboard_service.py" = ["E402"]
+"**/services/email_service.py" = ["E402"]   # deferred provider imports for circular-dep avoidance
+"**/events_updater/app.py" = ["E402"]       # OTel setup_observability before FastAPI
+"**/tracking_milter/milter_server.py" = ["E402", "B007"]   # OTel + legacy idx loop in milter
+"**/common/kafka_client.py" = ["E402"]      # imports depois de helpers no topo (outbox de eventos)
+"**/tests/**/*.py" = ["E402", "F841", "N801", "E712"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

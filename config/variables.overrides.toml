@@ -1,0 +1,544 @@
+# RevBridge Connect — curated entries of the variable catalog.
+# These win over the automatic rules in tools/manifest/scan_env.py.
+# Templates: {{section.key}} comes from connect.toml; {{secret.NAME}} from secrets/generated.env.
+# `note` says why a value was chosen.
+
+# ───────────── database ─────────────
+[DB_DSN]
+group = "database"
+status = "derive"
+value = "mysql://{{mysql.user}}:{{secret.DB_PASSWORD}}@{{mysql.host}}:{{mysql.port}}/{{mysql.database}}"
+note = "database DSN used by the API, tracking, milter and mail_shared"
+
+[DB_HOST]
+group = "database"
+status = "derive"
+value = "{{mysql.host}}"
+
+[DB_PORT]
+group = "database"
+status = "derive"
+value = "{{mysql.port}}"
+
+[DB_USER]
+group = "database"
+status = "derive"
+value = "{{mysql.user}}"
+
+[DB_PASSWORD]
+group = "secrets"
+status = "secret"
+value = "{{secret.DB_PASSWORD}}"
+
+[DB_NAME]
+group = "database"
+status = "derive"
+value = "{{mysql.database}}"
+
+[MAIL_DB_NAME]
+group = "database"
+status = "derive"
+value = "{{mysql.database}}"
+
+[MYSQL_HOST]
+group = "database"
+status = "derive"
+value = "{{mysql.host}}"
+note = "used by the MTA (Postfix maps and DKIM keys)"
+
+[MYSQL_PORT]
+group = "database"
+status = "derive"
+value = "{{mysql.port}}"
+
+[MAILBOX_USER]
+group = "database"
+status = "keep"
+value = "connect_mta"
+note = "the MTA's database user: read-only (config/db/initdb/090_connect_mta_user.sh)"
+
+[MAILBOX_PASSWORD]
+group = "secrets"
+status = "secret"
+value = "{{secret.MTA_DB_PASSWORD}}"
+note = "password of the MTA's read-only database user; only the mta container receives it"
+
+# ───────────── redis ─────────────
+[REDIS_URL]
+group = "redis"
+status = "derive"
+value = "redis://:{{secret.REDIS_PASSWORD}}@{{redis.host}}:{{redis.port}}/0"
+note = "send queue (a LIST) and caches; this Redis runs with AOF persistence"
+
+[REDIS_HOST]
+group = "redis"
+status = "derive"
+value = "{{redis.host}}"
+
+[REDIS_PORT]
+group = "redis"
+status = "derive"
+value = "{{redis.port}}"
+
+[REDIS_PASSWORD]
+group = "secrets"
+status = "secret"
+value = "{{secret.REDIS_PASSWORD}}"
+
+[AUTH_CACHE_REDIS_URL]
+group = "redis"
+status = "derive"
+value = "redis://:{{secret.REDIS_PASSWORD}}@{{redis.host}}:{{redis.port}}/0"
+
+# ───────────── secrets ─────────────
+[TOKEN_ENCRYPTION_KEY]
+group = "secrets"
+status = "secret"
+value = "{{secret.TOKEN_ENCRYPTION_KEY}}"
+note = "Fernet key of the tracking tokens (pixel, click, unsubscribe); rotating it invalidates links already sent"
+
+[JWT_SECRET_KEY]
+group = "secrets"
+status = "secret"
+value = "{{secret.JWT_SECRET_KEY}}"
+
+[IMAGE_PROXY_SECRET]
+group = "secrets"
+status = "secret"
+value = "{{secret.IMAGE_PROXY_SECRET}}"
+note = "HMAC key of the image-proxy URLs (the API signs, the proxy verifies); only the API and the image proxy receive it"
+
+# ───────────── addresses ─────────────
+[DOMAIN]
+group = "endpoints"
+status = "derive"
+value = "{{install.domain}}"
+
+[MYHOSTNAME]
+group = "endpoints"
+status = "derive"
+value = "{{install.hostname}}"
+note = "HELO name of the control node; must match the PTR of its IP"
+
+[MESSAGE_ID_DOMAIN]
+group = "endpoints"
+status = "derive"
+value = "{{install.domain}}"
+
+[TRACK_BASE]
+group = "endpoints"
+status = "derive"
+value = "https://{{endpoints.tracking}}"
+
+[EVENTS_UPDATER_HOST]
+group = "endpoints"
+status = "derive"
+value = "events"
+
+[EVENTS_UPDATER_PORT]
+group = "endpoints"
+status = "derive"
+value = "8081"
+
+[SUBMISSION_HOST]
+group = "endpoints"
+status = "derive"
+value = "{{endpoints.submission}}"
+
+[MILTER_HOST]
+group = "endpoints"
+status = "derive"
+value = "milter"
+note = "read by mta/render.py"
+
+[MILTER_PORT]
+group = "endpoints"
+status = "derive"
+value = "8901"
+note = "read by mta/render.py"
+
+[RELAY_HOST]
+group = "endpoints"
+status = "derive"
+value = ""
+note = "empty = direct delivery to the recipient MX; only set for local tests (Mailpit)"
+
+[CONNECT_INTERNAL_RELAY_SUFFIX]
+group = "endpoints"
+status = "derive"
+value = ".{{install.domain}}"
+note = "hostname suffix of the installation's own nodes: an internal hop, not counted as a delivery"
+
+[CADDY_API_HOST]
+group = "endpoints"
+status = "derive"
+value = "{{endpoints.api}}"
+
+[CADDY_TRACKING_HOST]
+group = "endpoints"
+status = "derive"
+value = "{{endpoints.tracking}}"
+
+[CADDY_ADMIN_EMAIL]
+group = "endpoints"
+status = "derive"
+value = "{{install.admin_email}}"
+
+# Read by mta/render.py through a mapping, so the scanner does not see them.
+[RELAYHOST]
+group = "mta"
+status = "derive"
+value = ""
+note = "empty = direct delivery to the recipient MX; extra nodes are rows of the relays table"
+
+[SUBDOMAIN_LB]
+group = "mta"
+status = "derive"
+value = "{{endpoints.submission:label}}"
+note = "installation zone label used in the zone host name"
+
+[RELAY_DB_ROUTING]
+group = "mta"
+status = "keep"
+value = "true"
+note = "routing by recipient provider, then by zone, then default, read from the database on every message (relays, zone_relays, recipient_relays)"
+
+[DKIM_KEYS_FROM_DB]
+group = "mta"
+status = "keep"
+value = "false"
+
+[DISABLE_SUBMISSION_PROXY]
+group = "mta"
+status = "keep"
+value = "true"
+
+# ───────────── authentication ─────────────
+[AUTH_DISABLED]
+group = "auth"
+status = "keep"
+value = "false"
+
+[DS_DRY_RUN]
+group = "deliverability"
+status = "keep"
+value = "false"
+note = "delivery_stats writes its results (not a dry run)"
+
+[CONNECT_LIST_UNSUBSCRIBE]
+group = "sending"
+status = "keep"
+value = "true"
+note = "the milter adds List-Unsubscribe and List-Unsubscribe-Post (one-click, RFC 8058) pointing to /u/{token}"
+
+[CONNECT_MESSAGE_META]
+group = "sending"
+status = "keep"
+value = "true"
+note = "POST /send stores subject and sender in message_meta (the panel's email list)"
+
+# ───────────── node topology (mail_infra.topology) ─────────────
+[CONNECT_NODE_RELAY_LIKE]
+group = "deliverability"
+status = "keep"
+value = "%"
+note = "every row of relays is an own node (the control node is the relay named 'direct')"
+
+[CONNECT_NODE_HOST_TEMPLATE]
+group = "deliverability"
+status = "keep"
+value = "{name}"
+note = "delivery_events.host = the node's hostname (= relays.name)"
+
+[IW_HOST_TEMPLATE]
+group = "deliverability"
+status = "keep"
+value = "{name}"
+
+[CONNECT_CONTROL_HOST_LIKE]
+group = "deliverability"
+status = "derive"
+value = "{{install.hostname}}"
+note = "delivery_events.host of the control node (the compose Vector runs with this hostname)"
+
+[CONNECT_OVERFLOW_RELAY]
+group = "deliverability"
+status = "keep"
+value = ""
+note = "no external relay: traffic only moves between own nodes; without a node with room it waits in the queue"
+
+[CONNECT_CONTROL_IP]
+group = "deliverability"
+status = "derive"
+value = "{{install.public_ip}}"
+note = "outbound IP of the control node (checked against blocklists by node_health)"
+
+[NH_DRY_RUN]
+group = "deliverability"
+status = "keep"
+value = "false"
+note = "node_health acts (quarantine and failover between own nodes)"
+
+[NH_DNSBL_ZONES]
+group = "deliverability"
+status = "keep"
+value = "zen.spamhaus.org,b.barracudacentral.org,bl.spamcop.net,psbl.surriel.com"
+
+[NH_CLEAN_TO_RELEASE]
+group = "deliverability"
+status = "keep"
+value = "3"
+note = "consecutive clean checks before a node returns to rotation"
+
+[NH_FORCE_LISTED]
+group = "deliverability"
+status = "keep"
+note = "LOCAL TESTS ONLY: IPs treated as listed"
+
+[RF_DRY_RUN]
+group = "deliverability"
+status = "keep"
+value = "false"
+note = "recipient_failover acts (between own nodes)"
+
+[WC_DRY_RUN]
+group = "deliverability"
+status = "keep"
+value = "false"
+
+# ───────────── read outside the Python code (the scanner does not see them) ─────────────
+[MALLOC_ARENA_MAX]
+group = "runtime"
+status = "keep"
+value = "2"
+note = "glibc: limits memory arenas of the Python processes"
+
+[OTEL_SDK_DISABLED]
+group = "runtime"
+status = "keep"
+value = "true"
+note = "OpenTelemetry off (no collector in the installation)"
+
+# ───────────── webhooks (mail_api.webhook_dispatch) ─────────────
+[CONNECT_EVENT_OUTBOX]
+group = "events"
+status = "keep"
+value = "true"
+note = "tracking, events, milter and API write events to the kafka_outbox table; the webhook dispatcher drains it"
+
+[WEBHOOK_OUTBOX_RETENTION_DAYS]
+group = "events"
+status = "keep"
+value = "7"
+note = "dispatched kafka_outbox rows are deleted after this many days"
+
+[WEBHOOK_OUTBOX_RETRY_DELAY]
+group = "events"
+status = "keep"
+note = "seconds x attempts before a failed outbox event is retried (default 30)"
+
+[WEBHOOK_OUTBOX_MAX_RETRIES]
+group = "events"
+status = "keep"
+note = "attempts of an outbox event before it is marked failed (default 5)"
+
+[WEBHOOK_WORKER_NAME]
+group = "events"
+status = "keep"
+note = "value of the X-Webhook-Worker header (default worker-1)"
+
+[WEBHOOK_ALLOW_PRIVATE_HOSTS]
+group = "events"
+status = "keep"
+note = "LOCAL TESTS ONLY: hosts allowed past the webhook SSRF guard (docker-compose.dev.yml uses webhook-sink)"
+
+[CONNECT_METRICS_SINK]
+group = "observability"
+status = "keep"
+value = "redis"
+note = "delivery_stats and fleet_stats write to Redis; the API exposes them at GET /metrics (Prometheus, internal network)"
+
+[API_KEY_CACHE_TTL]
+group = "auth"
+status = "keep"
+value = "30"
+note = "a key revoked in the panel stops working within 30 s"
+
+[JWT_ACCESS_TOKEN_EXPIRE_MINUTES]
+group = "auth"
+status = "keep"
+value = "720"
+note = "panel sessions expire after 12 h"
+
+[CONNECT_ADMIN_API_ENABLED]
+group = "auth"
+status = "keep"
+value = "true"
+note = "mounts /auth (panel login) and /api-keys in the API"
+
+[CONNECT_ADMIN_DOMAIN]
+group = "auth"
+status = "keep"
+value = ""
+note = "optional: admins of a user on this domain may create keys for other customers (POST /api-keys/admin/create); empty = endpoint off"
+
+# ───────────── behavior ─────────────
+[SUPPRESSION_CHECK_MODE]
+group = "sending"
+status = "keep"
+value = "enforce"
+
+[VOLUME_GOVERNOR_MODE]
+group = "sending"
+status = "keep"
+value = "enforce"
+
+[QUEUE_FAIRNESS_ENABLED]
+group = "sending"
+status = "keep"
+value = "true"
+
+[IMAGE_PROXY_ENABLED]
+group = "integrations"
+status = "keep"
+value = "true"
+note = "enables wrapping <img> tags through the image proxy"
+
+[IMAGE_PROXY_URL]
+group = "integrations"
+status = "derive"
+value = "https://{{endpoints.images}}"
+
+[CONNECT_IMAGE_PROXY_WRAP]
+group = "integrations"
+status = "keep"
+value = "true"
+note = "the API wraps <img> tags through the image proxy (solid background behind transparent PNGs)"
+
+[SERVICE_URL]
+group = "integrations"
+status = "derive"
+value = "https://{{endpoints.images}}"
+note = "public URL of the image proxy"
+
+[CACHE_TTL]
+group = "integrations"
+status = "keep"
+note = "image cache TTL"
+
+[MAX_IMAGE_SIZE]
+group = "integrations"
+status = "keep"
+note = "maximum size of a source image"
+
+[MAX_SVG_SIZE]
+group = "integrations"
+status = "keep"
+note = "maximum size of an uploaded SVG"
+
+[CADDY_IMAGE_HOST]
+group = "endpoints"
+status = "derive"
+value = "{{endpoints.images}}"
+
+[CADDY_PANEL_HOST]
+group = "endpoints"
+status = "derive"
+value = "{{endpoints.panel}}"
+
+[CADDY_SUBMISSION_HOST]
+group = "endpoints"
+status = "derive"
+value = "{{endpoints.submission}}"
+note = "Caddy obtains the SMTP certificate for this host; the MTA uses it (mta/tls-sync.sh)"
+
+[OTEL_ENABLED]
+group = "observability"
+status = "keep"
+value = "false"
+note = "enable only with an OTLP collector configured"
+
+[OTEL_TRACES_ENABLED]
+group = "observability"
+status = "keep"
+value = "false"
+
+[OTEL_METRICS_ENABLED]
+group = "observability"
+status = "keep"
+value = "false"
+
+[OTEL_LOGS_ENABLED]
+group = "observability"
+status = "keep"
+value = "false"
+
+[HEALTH_PROVIDER]
+group = "deliverability"
+status = "keep"
+value = "connect"
+note = "provider label group_health uses for the installation's own nodes"
+
+# ───────────── MTA and image proxy (Connect) ─────────────
+[QUEUE_SUBMISSION_PORT]
+group = "smtp"
+status = "keep"
+value = "2587"
+note = "internal submission port the queue processors use (SASL with the customer's API key); not published on the host"
+
+[TLS_SYNC_INTERVAL]
+group = "smtp"
+status = "keep"
+value = "3600"
+note = "seconds between checks for a renewed SMTP certificate issued by Caddy (mta/tls-sync.sh)"
+
+[LOGROTATE_INTERVAL]
+group = "smtp"
+status = "keep"
+value = "3600"
+note = "seconds between logrotate runs for the MTA logs"
+
+[IMAGE_CACHE_REDIS_URL]
+group = "images"
+status = "keep"
+value = "redis://redis-cache:6379/0"
+note = "the image proxy's own bounded Redis (redis-cache service, LRU); never the queue's Redis"
+
+[IMAGE_CACHE_TTL]
+group = "images"
+status = "keep"
+value = "604800"
+note = "seconds a processed image stays in the image cache"
+
+[ASYNC_BOUNCE_LOOKBACK_DAYS]
+group = "sending"
+status = "keep"
+value = "14"
+note = "an asynchronous bounce that does not quote the original message is accepted only if the domain mailed that recipient within this many days"
+
+# ───────────── API rate limit (per API key) ─────────────
+[RATE_LIMIT_REQUESTS]
+group = "api"
+status = "keep"
+value = "6000"
+note = "requests per window per API key (100/s with the 60 s window): room for campaign bursts with one recipient per request; a runaway client still gets 429"
+
+[RATE_LIMIT_WINDOW]
+group = "api"
+status = "keep"
+value = "60"
+note = "rate-limit window in seconds"
+
+# ───────────── database connections ─────────────
+[DB_POOL_ENABLED]
+group = "database"
+status = "keep"
+value = "true"
+note = "reuse database connections per process instead of opening one per query"
+
+[DB_EXECUTOR_WORKERS]
+group = "database"
+status = "keep"
+value = "16"
+note = "threads (and pooled connections) per process for database calls"
+

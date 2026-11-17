@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Panel tokens. Values are RGB channels ("r g b") so Tailwind can apply opacity.
+  Palette: coral for actions, cool ink and slate neutrals, Inter for text.
+  - primary: the dark action coral (white text on it reaches >= 4.5:1 contrast).
+  - accent: the brand coral, for focus, selection and indicators.
+  - field: border of inputs and controls (>= 3:1 against the surface).
+  - series-*: categorical chart palette, checked for color blindness and contrast.
+*/
+:root {
+  color-scheme: light;
+  --c-canvas: 255 255 255;
+  --c-surface: 255 255 255;
+  --c-subtle: 243 244 246;
+  --c-ink: 26 33 45;
+  --c-muted: 98 106 121;
+  --c-line: 229 231 235;
+  --c-field: 138 144 156;
+  --c-primary: 204 45 20;
+  --c-primary-hover: 181 40 18;
+  --c-primary-text: 196 43 19;
+  --c-accent: 231 65 50;
+  --c-destructive: 185 28 28;
+  --c-success: 16 185 129;
+  --c-success-text: 10 117 82;
+  --c-warning: 251 164 65;
+  --c-warning-text: 160 74 8;
+  --c-danger: 239 68 68;
+  --c-danger-text: 185 28 28;
+  --c-info: 76 144 240;
+  --c-info-text: 29 78 216;
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --chart-grid: #eceef1;
+  --chart-axis: #d1d5db;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --c-canvas: 8 13 22;
+    --c-surface: 21 27 40;
+    --c-subtle: 29 37 52;
+    --c-ink: 237 239 243;
+    --c-muted: 164 170 183;
+    --c-line: 40 47 62;
+    --c-field: 96 103 118;
+    --c-primary: 204 45 20;
+    --c-primary-hover: 181 40 18;
+    --c-primary-text: 241 94 80;
+    --c-accent: 241 94 80;
+    --c-destructive: 185 28 28;
+    --c-success: 16 185 129;
+    --c-success-text: 52 211 153;
+    --c-warning: 251 164 65;
+    --c-warning-text: 251 191 36;
+    --c-danger: 239 68 68;
+    --c-danger-text: 248 113 113;
+    --c-info: 76 144 240;
+    --c-info-text: 96 165 250;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --chart-grid: #222a39;
+    --chart-axis: #374052;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --c-canvas: 8 13 22;
+  --c-surface: 21 27 40;
+  --c-subtle: 29 37 52;
+  --c-ink: 237 239 243;
+  --c-muted: 164 170 183;
+  --c-line: 40 47 62;
+  --c-field: 96 103 118;
+  --c-primary: 204 45 20;
+  --c-primary-hover: 181 40 18;
+  --c-primary-text: 241 94 80;
+  --c-accent: 241 94 80;
+  --c-destructive: 185 28 28;
+  --c-success: 16 185 129;
+  --c-success-text: 52 211 153;
+  --c-warning: 251 164 65;
+  --c-warning-text: 251 191 36;
+  --c-danger: 239 68 68;
+  --c-danger-text: 248 113 113;
+  --c-info: 76 144 240;
+  --c-info-text: 96 165 250;
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --chart-grid: #222a39;
+  --chart-axis: #374052;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-canvas font-sans text-sm text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    caret-color: rgb(var(--c-accent));
+  }
+  ::selection {
+    background: rgb(var(--c-accent) / 0.22);
+    color: inherit;
+  }
+  * {
+    scrollbar-color: rgb(var(--c-field) / 0.6) transparent;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-accent));
+    outline-offset: 2px;
+  }
+  a {
+    text-underline-offset: 3px;
+  }
+  dialog::backdrop {
+    background: rgb(8 13 22 / 0.45);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(var(--c-muted));
+    opacity: 1;
+  }
+  [hidden] {
+    display: none !important;
+  }
+}
+
+@layer components {
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .code {
+    @apply font-mono text-[0.8125rem] leading-relaxed;
+  }
+}
+
+/* Motion only to confirm a state change: the side panel slides in, the toast rises. */
+@keyframes drawer-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes drawer-in-left {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+@keyframes toast-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+dialog[open].drawer-right {
+  animation: drawer-in-right 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+dialog[open].drawer-left {
+  animation: drawer-in-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.toast-in {
+  animation: toast-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

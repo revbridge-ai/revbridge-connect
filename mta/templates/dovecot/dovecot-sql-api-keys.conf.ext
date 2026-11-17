@@ -1,0 +1,13 @@
+driver = mysql
+
+connect = host={{ mysql_host }} port={{ mysql_port | default(3306) }} dbname={{ mysql_database }} user={{ mailbox_user }} password={{ mailbox_password }}
+
+password_query = \
+  SELECT \
+    api_key_id AS user, \
+    key_hash AS password \
+  FROM api_keys \
+  WHERE api_key_id = '%u' \
+    AND is_active = 1 \
+    AND JSON_CONTAINS(permissions, '"write:email"') \
+    AND (expires_at IS NULL OR expires_at > NOW());

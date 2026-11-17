@@ -1,0 +1,357 @@
+{
+  "version": 1,
+  "description": "Merge tags v2 parity fixture. Every implementation must produce `expected` for `text` given `values`.",
+  "rules": [
+    "TOKEN := '{{' WS* NAME WS* ( '|' FALLBACK )? '}}' ; full match length <= 256 chars, else literal",
+    "NAME := FIRST ( '.' SEG )* ; FIRST := [A-Za-z_][A-Za-z0-9_-]* ; SEG := [A-Za-z0-9_][A-Za-z0-9_-]*",
+    "FALLBACK := [^|}]* , trimmed, one pair of surrounding matching quotes (' or \") removed",
+    "Regex: \\{\\{\\s*([A-Za-z_][A-Za-z0-9_\\-]*(?:\\.[A-Za-z0-9_][A-Za-z0-9_\\-]*)*)\\s*(?:\\|([^|}]*))?\\}\\}",
+    "unsub_link (case-insensitive): token left byte-identical, never replaced",
+    "STRUCTURAL = headline, body, subject, cta_text, cta_link, link, id : value if present (non-absent), else token left byte-identical; fallback ignored",
+    "RECIPIENT = first_name, name, email, phone : value -> fallback -> ''",
+    "user.* / event.* : lookup NAME ; flat unknown NAME : lookup NAME, then 'user.'+NAME ; each lookup = exact key, then case-insensitive key ; value -> fallback -> ''",
+    "absent value = key missing, null, '', or '\\N' ; other values stringified (int -> '150', float -> '4.5')",
+    "when a token resolves to '' and the last emitted char is ' ' and the next input char is ' ', that next space is dropped; newlines never touched",
+    "replacement is literal (no regex backreferences); up to 3 passes, stop when the text stops changing"
+  ],
+  "cases": [
+    {
+      "name": "user basic",
+      "text": "Seu cashback: {{user.cashback_value}}",
+      "values": {
+        "user.cashback_value": "R$ 25"
+      },
+      "expected": "Seu cashback: R$ 25"
+    },
+    {
+      "name": "spaces and double-quoted fallback",
+      "text": "Use {{ user.cupom | \"BEMVINDO10\" }} hoje",
+      "values": {},
+      "expected": "Use BEMVINDO10 hoje"
+    },
+    {
+      "name": "single-quoted fallback",
+      "text": "{{user.cupom|'X 1'}}",
+      "values": {},
+      "expected": "X 1"
+    },
+    {
+      "name": "unquoted fallback is trimmed",
+      "text": "[{{user.cupom| BEM VINDO }}]",
+      "values": {},
+      "expected": "[BEM VINDO]"
+    },
+    {
+      "name": "empty fallback",
+      "text": "[{{user.cupom|}}]",
+      "values": {},
+      "expected": "[]"
+    },
+    {
+      "name": "missing without fallback collapses one adjacent space",
+      "text": "Oi {{user.apelido}} tudo bem?",
+      "values": {},
+      "expected": "Oi tudo bem?"
+    },
+    {
+      "name": "missing next to punctuation",
+      "text": "Oi {{user.apelido}}!",
+      "values": {},
+      "expected": "Oi !"
+    },
+    {
+      "name": "two missing in a row",
+      "text": "a {{user.x}} {{user.y}} b",
+      "values": {},
+      "expected": "a b"
+    },
+    {
+      "name": "newlines are never collapsed",
+      "text": "L1\n{{user.x}}\nL2",
+      "values": {},
+      "expected": "L1\n\nL2"
+    },
+    {
+      "name": "empty string value uses fallback",
+      "text": "{{user.cupom|A}}",
+      "values": {
+        "user.cupom": ""
+      },
+      "expected": "A"
+    },
+    {
+      "name": "mysql null marker is absent",
+      "text": "{{user.cupom|A}}",
+      "values": {
+        "user.cupom": "\\N"
+      },
+      "expected": "A"
+    },
+    {
+      "name": "null value is absent",
+      "text": "{{user.cupom|A}}",
+      "values": {
+        "user.cupom": null
+      },
+      "expected": "A"
+    },
+    {
+      "name": "numeric value is stringified",
+      "text": "Pontos: {{user.pontos}}",
+      "values": {
+        "user.pontos": 150
+      },
+      "expected": "Pontos: 150"
+    },
+    {
+      "name": "float value is stringified",
+      "text": "{{user.nota}}",
+      "values": {
+        "user.nota": 4.5
+      },
+      "expected": "4.5"
+    },
+    {
+      "name": "flat unknown is alias of user.*",
+      "text": "{{cashback_value}}",
+      "values": {
+        "user.cashback_value": "10"
+      },
+      "expected": "10"
+    },
+    {
+      "name": "flat exact key (webhook) wins over user.*",
+      "text": "{{page_url}}",
+      "values": {
+        "page_url": "https://a",
+        "user.page_url": "https://b"
+      },
+      "expected": "https://a"
+    },
+    {
+      "name": "case-insensitive key match",
+      "text": "{{user.URL}}",
+      "values": {
+        "user.url": "https://x"
+      },
+      "expected": "https://x"
+    },
+    {
+      "name": "case-insensitive flat alias",
+      "text": "{{URL}}",
+      "values": {
+        "user.url": "https://x"
+      },
+      "expected": "https://x"
+    },
+    {
+      "name": "exact key wins over case-insensitive",
+      "text": "{{user.Url}}",
+      "values": {
+        "user.url": "lower",
+        "user.Url": "exact"
+      },
+      "expected": "exact"
+    },
+    {
+      "name": "event default",
+      "text": "{{event.page_url}}",
+      "values": {
+        "event.page_url": "https://p"
+      },
+      "expected": "https://p"
+    },
+    {
+      "name": "event slug with dotted prop and numeric segment",
+      "text": "{{event.purchase.items.0.name}}",
+      "values": {
+        "event.purchase.items.0.name": "Tenis"
+      },
+      "expected": "Tenis"
+    },
+    {
+      "name": "hyphen in segment",
+      "text": "{{user.utm-source}}",
+      "values": {
+        "user.utm-source": "x"
+      },
+      "expected": "x"
+    },
+    {
+      "name": "reserved first_name present",
+      "text": "Ola {{first_name}}",
+      "values": {
+        "first_name": "Ana"
+      },
+      "expected": "Ola Ana"
+    },
+    {
+      "name": "reserved first_name with spaces",
+      "text": "Ola {{ first_name }}",
+      "values": {
+        "first_name": "Ana"
+      },
+      "expected": "Ola Ana"
+    },
+    {
+      "name": "reserved first_name empty uses fallback",
+      "text": "Ola {{first_name|cliente}}",
+      "values": {
+        "first_name": ""
+      },
+      "expected": "Ola cliente"
+    },
+    {
+      "name": "reserved first_name absent becomes empty",
+      "text": "Ola {{first_name}}, tudo",
+      "values": {},
+      "expected": "Ola , tudo"
+    },
+    {
+      "name": "reserved email present",
+      "text": "{{email}}",
+      "values": {
+        "email": "a@b.com"
+      },
+      "expected": "a@b.com"
+    },
+    {
+      "name": "structural absent stays literal",
+      "text": "{{headline}}",
+      "values": {},
+      "expected": "{{headline}}"
+    },
+    {
+      "name": "structural present",
+      "text": "{{headline}}",
+      "values": {
+        "headline": "Promo"
+      },
+      "expected": "Promo"
+    },
+    {
+      "name": "structural fallback is ignored and token stays literal",
+      "text": "{{cta_link|x}}",
+      "values": {},
+      "expected": "{{cta_link|x}}"
+    },
+    {
+      "name": "structural body present",
+      "text": "<p>{{body}}</p>",
+      "values": {
+        "body": "Oi"
+      },
+      "expected": "<p>Oi</p>"
+    },
+    {
+      "name": "link absent stays literal",
+      "text": "<a href=\"{{link}}\">",
+      "values": {},
+      "expected": "<a href=\"{{link}}\">"
+    },
+    {
+      "name": "id present",
+      "text": "{{id}}",
+      "values": {
+        "id": "u1"
+      },
+      "expected": "u1"
+    },
+    {
+      "name": "unsub_link is never touched",
+      "text": "<a href=\"{{unsub_link}}\">sair</a>",
+      "values": {
+        "unsub_link": "http://evil"
+      },
+      "expected": "<a href=\"{{unsub_link}}\">sair</a>"
+    },
+    {
+      "name": "unsub_link with spaces is never touched",
+      "text": "{{ unsub_link }}",
+      "values": {},
+      "expected": "{{ unsub_link }}"
+    },
+    {
+      "name": "invalid leading digit stays literal",
+      "text": "{{ 1abc }}",
+      "values": {},
+      "expected": "{{ 1abc }}"
+    },
+    {
+      "name": "trailing dot stays literal",
+      "text": "{{user.}}",
+      "values": {},
+      "expected": "{{user.}}"
+    },
+    {
+      "name": "empty braces stay literal",
+      "text": "{{}}",
+      "values": {},
+      "expected": "{{}}"
+    },
+    {
+      "name": "pipe inside fallback makes token invalid",
+      "text": "{{user.x|a|b}}",
+      "values": {},
+      "expected": "{{user.x|a|b}}"
+    },
+    {
+      "name": "token longer than 256 chars stays literal",
+      "text": "{{user.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}}",
+      "values": {
+        "user.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "v"
+      },
+      "expected": "{{user.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}}"
+    },
+    {
+      "name": "dollar and backslash in value are literal",
+      "text": "{{user.x}}",
+      "values": {
+        "user.x": "R$ 1\\2 $1"
+      },
+      "expected": "R$ 1\\2 $1"
+    },
+    {
+      "name": "multi-pass: structural value carries first_name",
+      "text": "{{subject}}",
+      "values": {
+        "subject": "Oi {{first_name}}",
+        "first_name": "Ana"
+      },
+      "expected": "Oi Ana"
+    },
+    {
+      "name": "multi-pass: value carries user token",
+      "text": "{{body}}",
+      "values": {
+        "body": "Cupom {{user.cupom|X}}"
+      },
+      "expected": "Cupom X"
+    },
+    {
+      "name": "several tokens in one text",
+      "text": "{{first_name}}, seu cupom {{user.cupom|NONE}} vale {{event.purchase.total}}",
+      "values": {
+        "first_name": "Bia",
+        "event.purchase.total": "99.90"
+      },
+      "expected": "Bia, seu cupom NONE vale 99.90"
+    },
+    {
+      "name": "token inside url query",
+      "text": "https://x.com/p?c={{user.cupom|NONE}}&u=1",
+      "values": {
+        "user.cupom": "ABC"
+      },
+      "expected": "https://x.com/p?c=ABC&u=1"
+    },
+    {
+      "name": "single braces untouched",
+      "text": "{user.x} {{{user.x}}}",
+      "values": {
+        "user.x": "v"
+      },
+      "expected": "{user.x} {v}"
+    }
+  ]
+}

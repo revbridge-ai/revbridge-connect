@@ -1,0 +1,6 @@
+[allowlist]
+# Test fixtures that look like secrets but are not.
+paths = [
+  '''services/api/tests/validate_mocks\.py''',
+  '''tests/test_dkim_key_idempotency\.py''',
+]

@@ -1,0 +1,10 @@
+# Local testing only (docker-compose.dev.yml, panel-dev service): the same panel and the same rules
+# as production, without TLS, on http://localhost:8088.
+{
+	auto_https off
+	admin off
+}
+
+:8088 {
+	import /etc/caddy/panel.caddy
+}

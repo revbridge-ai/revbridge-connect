@@ -1,0 +1,25 @@
+#!/bin/bash
+# Forwards an ASYNCHRONOUS bounce (late DSN) to the events-updater /bounces/async.
+#
+# Called by Postfix's 'bounce-handler' transport (master.cf) with the full VERP
+# recipient as argument ($1) and the raw DSN on stdin. The events-updater decodes
+# the VERP address, reads the Status and suppresses ONLY on a hard bounce (it reuses
+# the same logic as the synchronous path).
+#
+# Always exits 0: a handler failure must not redeliver, fill the queue or cause
+# backscatter. Losses (events-updater down) end up in the journald/maillog log;
+# the synchronous path already covers most bounces.
+set -u
+
+RECIPIENT="${1:-}"
+URL="http://{{ events_updater_host }}:8081/bounces/async"
+
+code=$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' \
+  --max-time 10 \
+  -X POST "$URL" \
+  -H 'Content-Type: message/rfc822' \
+  -H "X-Bounce-Recipient: ${RECIPIENT}" \
+  --data-binary @- 2>/dev/null) || code="000"
+
+/usr/bin/logger -t async-bounce "recipient=${RECIPIENT} http=${code}"
+exit 0

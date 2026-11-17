@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# RevBridge Connect — installation manifest
+#
+# This is the ONLY file an operator edits. `make env` reads it together with the
+# variable catalog (config/variables.toml), generates the secrets once under
+# secrets/ and writes the per-service environment files that docker compose uses.
+# Nothing in this file is a secret.
+#
+# Mail always goes straight to the recipient's MX from your own node IPs.
+# There is no "provider" or relay mode.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[install]
+name        = "connect"
+domain      = "example.com"          # base domain: Message-ID, panel, tracking
+hostname    = "mta1.example.com"     # FQDN of the control node = HELO = PTR of its IP
+public_ip   = ""                     # public IPv4 of the control node (required in production)
+admin_email = "postmaster@example.com"
+timezone    = "UTC"                  # keep UTC: services and MySQL must agree; the panel
+                                     # shows dates in the browser's time zone
+
+[endpoints]
+api        = "api.example.com"       # HTTP API (POST /send, reports)
+tracking   = "t.example.com"         # open pixel, click and unsubscribe links
+submission = "smtp.example.com"      # authenticated SMTP (587/465) for apps that don't use the API
+bounce     = "bounce.example.com"    # MX that receives asynchronous bounces (VERP)
+images     = "img.example.com"       # image proxy (solid background behind transparent PNGs)
+panel      = "panel.example.com"     # control panel
+
+[mysql]
+host     = "db"                      # compose service (MySQL 8.4)
+port     = 3306
+database = "revbridge_connect"
+user     = "connect"
+
+[redis]
+host = "redis"
+port = 6379
+
+[delivery]
+mode = "direct"                      # the only supported mode
+dkim_selectors = ["s1", "s2"]        # two DKIM selectors, for key rotation
+
+# ─── throughput ──────────────────────────────────────────────────────────────
+# Each queue processor submits one message at a time to the MTA; throughput grows
+# linearly with the number of processors until the CPU of the VM is the limit.
+# See docs/scaling.md for measured numbers and sizing.
+[scale]
+queue_processors = 8                 # sequential senders pulling from the queue
+api_workers      = 2                 # uvicorn workers of the HTTP API
+tracking_workers = 2                 # uvicorn workers of the tracking service
+events_workers   = 2                 # uvicorn workers of the delivery-event ingester
+
+# ─── sending nodes ───────────────────────────────────────────────────────────
+# Node 0 is the control VM itself, which also sends. More nodes (VPSs with their own
+# IP) are on the roadmap (CHANGELOG.md): the controllers exist, but routing traffic across
+# several nodes is not active yet, so keep a single node for now.
+[[nodes]]
+name     = "node-0"
+role     = "control+egress"
+ip       = ""                        # empty = install.public_ip
+hostname = ""                        # empty = install.hostname
+ssh_user = "root"
+
+# ─── deliverability jobs ─────────────────────────────────────────────────────
+# Scheduled by the `scheduler` service (scripts/scheduler.py). Thresholds live in
+# config/variables.toml. `make jobs` lists them with their last run.
+[deliverability]
+dnsbl_resolver = "unbound"           # local recursive resolver: Spamhaus refuses queries via 1.1.1.1/8.8.8.8
+
+[deliverability.jobs.domain_auth_audit]   # SPF/DKIM/DMARC/PTR of every sending domain
+script   = "domain_auth_audit.py"
+schedule = "17 * * * *"
+enabled  = true
+timeout  = 600
+
+[deliverability.jobs.delivery_stats]      # delivery events per sender/node group -> /metrics
+script   = "delivery_stats_exporter.py"
+schedule = "*/5 * * * *"
+enabled  = true
+timeout  = 180
+
+[deliverability.jobs.group_health]        # bounce/deferral/ceiling per node group; quarantine
+script   = "group_health.py"
+schedule = "*/15 * * * *"
+enabled  = true
+timeout  = 300
+
+[deliverability.jobs.volume_ramp]         # daily quota per sending domain (warm-up)
+script   = "volume_ramp_controller.py"
+schedule = "30 * * * *"
+enabled  = true
+timeout  = 600
+
+[deliverability.jobs.ip_warmup]           # per-IP ramp (300/day up to 50k/day)
+script   = "ip_warmup_controller.py"
+schedule = "0 * * * *"
+enabled  = true
+timeout  = 240
+
+[deliverability.jobs.warmup_spf_authz]    # which IPs each domain authorizes in SPF
+script   = "warmup_spf_authz.py"
+schedule = "17 */6 * * *"
+enabled  = true
+timeout  = 300
+
+[deliverability.jobs.node_health]         # node IP on a blocklist -> quarantine and automatic failover
+script   = "node_health_controller.py"
+schedule = "*/5 * * * *"
+enabled  = true
+timeout  = 240
+
+[deliverability.jobs.recipient_failover]  # a mailbox provider blocking a node -> another own node
+script   = "recipient_failover_controller.py"
+schedule = "*/10 * * * *"
+enabled  = true
+timeout  = 180
+
+[deliverability.jobs.warmup_controller]   # per-node budget; throttle or move traffic to another node
+script   = "warmup_controller.py"
+schedule = "*/20 * * * *"
+enabled  = true
+timeout  = 180
+
+[deliverability.jobs.tier_controller]     # zone moves to a dedicated node / back to shared by volume
+script   = "egress_tier_controller.py"
+schedule = "17 * * * *"
+enabled  = true
+timeout  = 240
+
+[deliverability.jobs.fleet_stats]         # node fleet metrics -> /metrics
+script   = "fleet_stats_exporter.py"
+schedule = "*/5 * * * *"
+enabled  = true
+timeout  = 120

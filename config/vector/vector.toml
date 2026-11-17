@@ -1,0 +1,54 @@
+# Vector: reads the Postfix log and sends the delivery events to the events-updater
+# (POST /postfix).
+[sources.postfix_logs_realtime]
+type = "file"
+include = ["/var/log/mail.log"]
+read_from = "end"
+ignore_checkpoints = false
+data_dir = "/var/lib/vector"
+
+[transforms.parse_postfix_realtime]
+type = "remap"
+inputs = ["postfix_logs_realtime"]
+source = '''
+parsed, err = parse_grok(.message, "%{TIMESTAMP_ISO8601:timestamp} %{HOSTNAME:hostname} postfix/%{WORD:process}(?:/%{WORD:subprocess})?\\[%{NUMBER:pid}\\]: %{DATA:queue_id}: to=<%{DATA:to}>, relay=(?:%{HOSTNAME:relay_name}\\[%{IP:relay_ip}\\](?::%{NUMBER:relay_port})?|%{WORD:relay}), delay=%{NUMBER:delay}, delays=%{DATA:delays}, dsn=%{DATA:dsn}, status=%{WORD:status}( \\(%{GREEDYDATA:status_msg}\\))?")
+if (err != null) {
+  parsed_alt1, err_alt1 = parse_grok(.message, "%{TIMESTAMP_ISO8601:timestamp} %{HOSTNAME:hostname} postfix/%{WORD:process}(?:/%{WORD:subprocess})?\\[%{NUMBER:pid}\\]")
+  if (err_alt1 == null) {
+    parsed = parsed_alt1
+    err = null
+  } else {
+    parsed_alt2, err_alt2 = parse_grok(.message, "%{TIMESTAMP_ISO8601:timestamp} %{HOSTNAME:hostname}")
+    if (err_alt2 == null) {
+      parsed = parsed_alt2
+      err = null
+    }
+  }
+}
+if (err == null) {
+  . = merge(., parsed)
+  .timestamp = parse_timestamp!(.timestamp, "%+")
+}
+# Hop control node -> sending node: the 'sent' of the internal hop is NOT the delivery to
+# the recipient (the node logs the real delivery). Keep the 'sent' (it carries the
+# "queued as <QID>" the events-updater uses to chain the hops) and drop the other
+# statuses of the internal hop. The suffix is the installation domain
+# (CONNECT_INTERNAL_RELAY_SUFFIX).
+_st = to_string(.status) ?? ""
+if _st != "sent" && ends_with(to_string(.relay_name) ?? "", "${CONNECT_INTERNAL_RELAY_SUFFIX}") {
+  abort
+}
+'''
+
+[sinks.events_updater]
+type = "http"
+inputs = ["parse_postfix_realtime"]
+uri = "http://events:8081/postfix"
+encoding.codec = "json"
+method = "post"
+compression = "gzip"
+batch.max_events = 50
+batch.timeout_secs = 1
+request.timeout_secs = 120
+request.retry_attempts = 3
+request.retry_max_duration_secs = 60

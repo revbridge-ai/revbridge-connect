@@ -1,0 +1,6 @@
+# Used by `make demo` (tools/dev/demo.sh). Mailpit refuses recipients whose address starts with
+# "old." (the demo's stale addresses), so those sends bounce for real through the pipeline:
+# 550 -> Postfix -> log -> events -> suppression. Every other address is accepted as usual.
+services:
+  mailpit:
+    command: ["--smtp-allowed-recipients", "^([^o]|o[^l]|ol[^d]|old[^.])"]

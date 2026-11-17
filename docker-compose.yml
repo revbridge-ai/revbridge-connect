@@ -1,0 +1,265 @@
+# RevBridge Connect — everything on one VM (the control node, which also sends).
+# Configure in connect.toml -> `make env` -> `make up`. See docs/installation.md.
+#
+# Each container gets only the secrets of its scope (secrets/env/<scope>.env, written by
+# `make env`): the image proxy never sees a database password and the MTA never sees the
+# JWT key. Networks:
+#   edge   internet-facing (Caddy, API, tracking, MTA, image proxy, webhook dispatcher)
+#   data   internal only, no outbound internet: MySQL, Redis and everything that uses them
+#   cache  internal only: the image proxy and its own Redis (it never reaches the data network)
+name: revbridge-connect
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "20m", max-file: "5" }
+
+x-hardening: &hardening
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+x-app: &app
+  image: revbridge/connect-app:${CONNECT_VERSION:-dev}
+  # local image built by the api service: never pull it (a registry image with this name
+  # is not ours and would receive every secret)
+  pull_policy: never
+  env_file: [secrets/env/common.env, secrets/env/app.env]
+  restart: unless-stopped
+  networks: [edge, data]
+  logging: *logging
+  <<: *hardening
+  depends_on:
+    db: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  # ─── data ─────────────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=600
+      - --event-scheduler=ON
+      - --innodb-buffer-pool-size=${MYSQL_BUFFER_POOL:-512M}
+      - --innodb-flush-log-at-trx-commit=2
+      # no binary log: a single node, backed up with a dump (docs/operations.md). With the binary
+      # log on and sync_binlog=1, every commit waits for an fsync, about 13 commits per email.
+      - --skip-log-bin
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MTA_DB_PASSWORD: ${MTA_DB_PASSWORD}   # read-only MTA user (config/db/initdb/090_*)
+      TZ: UTC
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./config/db/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [data]
+    logging: *logging
+
+  redis:
+    # The send queue is a Redis LIST: AOF on and no eviction.
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [data]
+    logging: *logging
+
+  # image cache only: bounded and evicting, so images can never fill the send queue's Redis
+  redis-cache:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    mem_limit: 384m
+    networks: [cache]
+    logging: *logging
+
+  # ─── API and queue ────────────────────────────────────────────────────────
+  api:
+    <<: *app
+    build: { context: ., dockerfile: docker/app.Dockerfile }
+    pull_policy: build
+    command: ["sh", "-c", "exec uvicorn mail_api.app.api.app:app --host 0.0.0.0 --port 8001 --workers ${API_WORKERS:-2} --proxy-headers --forwarded-allow-ips '*' --no-access-log"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  queue-processor:
+    <<: *app
+    command: ["python", "-m", "mail_api.workers.run_email_processor"]
+    deploy:
+      replicas: ${QUEUE_PROCESSOR_REPLICAS:-8}
+    networks: [data]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      mta: { condition: service_healthy }
+
+  # closes sends the ledger says were lost (deadletter, or delivered when a delivery
+  # event confirms them) so the panel and the API never show them stuck
+  ledger-reaper:
+    <<: *app
+    command: ["python", "-m", "mail_api.workers.run_ledger_reaper"]
+    networks: [data]
+
+  # customer webhooks: drains the event outbox (sent, delivered, bounced, opened, clicked,
+  # unsubscribed, complained) and POSTs signed JSON to each registered URL
+  webhook-dispatcher:
+    <<: *app
+    command: ["python", "-m", "mail_api.workers.run_webhook_dispatcher"]
+
+  # ─── tracking and events ──────────────────────────────────────────────────
+  tracking:
+    <<: *app
+    env_file: [secrets/env/common.env, secrets/env/tracking.env]
+    command: ["sh", "-c", "exec uvicorn mail_tracking.app.tracking.app:app --host 0.0.0.0 --port 8002 --workers ${TRACKING_WORKERS:-2} --proxy-headers --forwarded-allow-ips '*' --no-access-log"]
+
+  # delivery events from the MTA log (via Vector) and asynchronous bounces / complaints
+  events:
+    <<: *app
+    env_file: [secrets/env/common.env, secrets/env/events.env]
+    command: ["sh", "-c", "exec uvicorn mail_milter.events_updater.app:app --host 0.0.0.0 --port 8081 --workers ${EVENTS_WORKERS:-2} --no-access-log"]
+    networks: [data]
+
+  image-proxy:
+    # solid background behind transparent PNGs and SVG -> PNG (the API wraps every <img>)
+    image: revbridge/connect-image-proxy:${CONNECT_VERSION:-dev}
+    build: { context: ., dockerfile: docker/image-proxy.Dockerfile }
+    pull_policy: build
+    env_file: [secrets/env/common.env, secrets/env/proxy.env]
+    environment:
+      IMAGE_CACHE_REDIS_URL: redis://redis-cache:6379/0
+    restart: unless-stopped
+    mem_limit: 768m
+    depends_on: [redis-cache]
+    networks: [edge, cache]
+    logging: *logging
+    <<: *hardening
+
+  # ─── MTA ──────────────────────────────────────────────────────────────────
+  milter:
+    image: revbridge/connect-milter:${CONNECT_VERSION:-dev}
+    build: { context: ., dockerfile: docker/milter.Dockerfile }
+    pull_policy: build
+    env_file: [secrets/env/common.env, secrets/env/events.env]
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [data]
+    logging: *logging
+    <<: *hardening
+
+  mta:
+    image: revbridge/connect-mta:${CONNECT_VERSION:-dev}
+    build: { context: ., dockerfile: docker/mta.Dockerfile }
+    pull_policy: build
+    env_file: [secrets/env/common.env, secrets/env/mta.env]
+    restart: unless-stopped
+    hostname: ${MYHOSTNAME}
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      QUEUE_SUBMISSION_PORT: "2587"   # internal submission for the queue (not published)
+    healthcheck:
+      # bash: Debian's /bin/sh (dash) has no /dev/tcp
+      test: ["CMD", "bash", "-c", "postfix status >/dev/null 2>&1 && exec 3<>/dev/tcp/127.0.0.1/2587"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    ports:
+      - "25:25"     # MX: asynchronous bounces (VERP) and complaint reports (ARF)
+      - "587:587"   # authenticated submission (STARTTLS)
+      - "465:465"   # authenticated submission (implicit TLS)
+    volumes:
+      - postfix-spool:/var/spool/postfix
+      - mta-logs:/var/log
+      - ./secrets/tls:/etc/ssl/submission:ro   # fallback certificate (make env creates a self-signed one)
+      - caddy-data:/caddy-data:ro               # certificate issued by Caddy for endpoints.submission
+    depends_on:
+      db: { condition: service_healthy }
+      milter: { condition: service_started }
+    networks: [edge, data]
+    logging: *logging
+
+  vector:
+    image: timberio/vector:0.40.0-debian
+    restart: unless-stopped
+    # the host recorded in delivery_events is Vector's hostname: it must be the control node's
+    hostname: ${MYHOSTNAME}
+    command: ["--config", "/etc/vector/vector.toml"]
+    env_file: [secrets/env/common.env]
+    volumes:
+      - mta-logs:/var/log:ro
+      - vector-data:/var/lib/vector
+      - ./config/vector/vector.toml:/etc/vector/vector.toml:ro
+    depends_on: [events, mta]
+    networks: [data]
+    logging: *logging
+
+  # ─── deliverability jobs ──────────────────────────────────────────────────
+  scheduler:
+    <<: *app
+    command: ["python", "scripts/scheduler.py"]
+    environment:
+      CONNECT_MANIFEST: /run/connect/connect.toml
+    volumes:
+      - ./config/generated:/run/connect:ro   # copy of connect.toml written by make env
+
+  # ─── edge ─────────────────────────────────────────────────────────────────
+  # TLS, host routing and the control panel (static files baked into the image)
+  caddy:
+    image: revbridge/connect-caddy:${CONNECT_VERSION:-dev}
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: docker/panel.Dockerfile
+      target: caddy
+    restart: unless-stopped
+    env_file: [secrets/env/common.env]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # whole directory (not a single file): edits on the host show up in the container
+      - ./config/caddy:/etc/caddy:ro
+      - caddy-data:/data
+    depends_on: [api, tracking]
+    networks: [edge]
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+
+networks:
+  edge:
+  data:
+    internal: true
+  cache:
+    internal: true
+
+volumes:
+  db-data:
+  redis-data:
+  postfix-spool:
+  mta-logs:
+  vector-data:
+  caddy-data:

@@ -1,0 +1,8 @@
+RevBridge Connect
+Copyright 2026 RevBridge
+
+This product includes software developed by RevBridge (https://revbridge.ai),
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components run as separate containers under their own licenses:
+Postfix, OpenDKIM, Dovecot, MySQL, Redis, Vector, Caddy and Mailpit (local testing only).

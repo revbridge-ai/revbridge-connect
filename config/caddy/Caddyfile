@@ -1,0 +1,41 @@
+# Automatic TLS (Let's Encrypt). Hosts come from the .env (connect.toml -> make env).
+{
+	email {$CADDY_ADMIN_EMAIL}
+}
+
+# Public API (POST /send, reports). /metrics is for the internal network only (Prometheus on api:8001).
+# A handle, not a bare "respond": Caddy's directive order is fixed, so the block has to sit in a
+# more specific handle to apply before the proxy.
+{$CADDY_API_HOST} {
+	encode gzip
+	handle /metrics* {
+		respond 404
+	}
+	handle {
+		reverse_proxy api:8001
+	}
+}
+
+# Tracking: pixel, click, unsubscribe (including the List-Unsubscribe one-click POST)
+{$CADDY_TRACKING_HOST} {
+	# tracking classifies bots by IP: pass on the client's real IP
+	reverse_proxy tracking:8002 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+
+# Image proxy (the <img> tags in the HTML point here)
+{$CADDY_IMAGE_HOST} {
+	reverse_proxy image-proxy:8080
+}
+
+# Panel: static files (baked into the Caddy image) + the API under /api (same origin)
+{$CADDY_PANEL_HOST} {
+	import /etc/caddy/panel.caddy
+}
+
+# SMTP certificate: Caddy issues it (HTTP-01 challenge on port 80) and the MTA uses the file from
+# the caddy-data volume (mounted read-only; mta/tls-sync.sh). Nothing is served on this host.
+{$CADDY_SUBMISSION_HOST} {
+	respond 404
+}

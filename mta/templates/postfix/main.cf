@@ -1,0 +1,274 @@
+###############################################################################
+# GENERAL
+###############################################################################
+
+# No new-mail notifications to local terminal users.
+biff=no
+
+# Do not append ".$mydomain" to addresses that have no domain (that is the client's job).
+append_dot_mydomain=no
+
+# No README directory.
+readme_directory=no
+
+# Use the modern, safer defaults of Postfix 3.6.
+compatibility_level=3.6
+
+# SMTP greeting banner.
+smtpd_banner=$myhostname
+
+# Local aliases; run newaliases after editing /etc/aliases and keep both settings on the same file.
+alias_maps=hash:/etc/aliases
+
+alias_database=hash:/etc/aliases
+
+###############################################################################
+# NETWORK AND INTERFACES
+###############################################################################
+
+# Server FQDN, used in HELO and headers; it needs matching A and PTR records.
+myhostname={{ myhostname }}
+
+# Base domain of the server.
+mydomain=outbound.{{ domain }}
+
+# Domain used for locally submitted mail.
+myorigin=$myhostname
+
+###############################################################################
+# Domains delivered locally. List only domains this server really handles, or mail can loop.
+###############################################################################
+mydestination=$myhostname, localhost.$mydomain, localhost, $mydomain
+
+# Networks allowed to relay without authentication: loopback only. Never add public networks.
+mynetworks=127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
+
+# Listen on every interface (the MX on port 25 must be reachable from the internet).
+inet_interfaces=all
+
+# IPv4 only; use "all" only if IPv6 is configured on the host.
+inet_protocols=ipv4
+
+###############################################################################
+# TLS (OUTBOUND)
+###############################################################################
+
+# Opportunistic TLS for direct-to-MX delivery: encrypt when the MX offers STARTTLS, plain text otherwise.
+# 'encrypt' would defer mail to MXs without STARTTLS (dsn=4.7.4) until it expires; use it only towards a known smarthost.
+smtp_tls_security_level=may
+
+# CA certificates used to verify destination servers (Debian/Ubuntu default path).
+smtp_tls_CApath=/etc/ssl/certs
+
+# Cache of outbound TLS sessions, to avoid a full handshake on every connection.
+smtp_tls_session_cache_database=btree:${data_directory}/smtp_scache
+
+# Outbound TLS log level: 1 is enough for diagnostics; raise it only while debugging.
+smtp_tls_loglevel=1
+
+###############################################################################
+# TLS (INBOUND)
+###############################################################################
+
+# Offer STARTTLS on inbound SMTP connections.
+smtpd_use_tls=yes
+
+# Allow SASL authentication only over TLS.
+smtpd_tls_auth_only=yes
+
+# Default inbound policy: require TLS. master.cf relaxes it to 'may' on the public MX (25) and the internal queue port.
+smtpd_tls_security_level=encrypt
+
+# Certificate for inbound TLS (copied to /etc/ssl/connect by tls-sync.sh).
+smtpd_tls_cert_file=/etc/ssl/connect/fullchain.pem
+smtpd_tls_key_file=/etc/ssl/connect/privkey.pem
+
+# Inbound TLS log level: 1 for normal operation; raise it only to debug a specific problem.
+smtpd_tls_loglevel=1
+
+###############################################################################
+# SASL (AUTHENTICATION)
+###############################################################################
+
+# Enable SMTP AUTH (the submission services in master.cf use it).
+smtpd_sasl_auth_enable=yes
+
+# Dovecot is the SASL backend.
+smtpd_sasl_type=dovecot
+
+# Dovecot's auth socket, relative to the queue directory (/var/spool/postfix/private/auth).
+smtpd_sasl_path=private/auth
+
+# Default recipient restrictions (master.cf overrides them per service): authenticated clients and
+# local networks pass; non-FQDN addresses, unknown sender domains and relaying to other domains are rejected.
+smtpd_recipient_restrictions =
+    permit_sasl_authenticated,
+    permit_mynetworks,
+    reject_non_fqdn_sender,
+    reject_non_fqdn_recipient,
+    reject_unknown_sender_domain,
+    reject_unauth_destination
+
+# Relay only for local networks and authenticated clients (never an open relay).
+smtpd_relay_restrictions=permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+
+# No anonymous SMTP AUTH.
+smtpd_sasl_security_options=noanonymous
+
+# Disable insecure and obsolete protocols.
+smtpd_tls_mandatory_protocols=!SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+
+# Strong ciphers only.
+smtpd_tls_mandatory_ciphers=high
+
+# Strong elliptic curves for ECDHE (e.g. X25519, secp521r1).
+smtpd_tls_eecdh_grade=strong
+
+# Prefer the server's cipher order over the client's.
+tls_preempt_cipherlist=yes
+
+###############################################################################
+# MESSAGE AND MAILBOX SIZE
+###############################################################################
+
+# No mailbox size limit (any local delivery is handled by Dovecot).
+mailbox_size_limit=0
+
+# Maximum message size: 50 MB.
+message_size_limit=52428800
+
+# Virtual mailbox delivery goes to Dovecot over LMTP (Unix socket).
+virtual_transport=lmtp:unix:private/dovecot-lmtp
+
+# Virtual mailbox domains, looked up in MySQL.
+virtual_mailbox_domains=mysql:/etc/postfix/mysql-virtual-mailbox-domains.cf
+
+# Virtual mailboxes (MySQL) plus the VERP bounce addresses (bounce_accept.regexp).
+virtual_mailbox_maps=mysql:/etc/postfix/mysql-virtual-mailbox-maps.cf,regexp:/etc/postfix/bounce_accept.regexp
+
+# Virtual aliases, looked up in MySQL.
+virtual_alias_maps=mysql:/etc/postfix/mysql-virtual-alias-maps.cf
+# Base domains of the zones that have an alias in virtual_aliases (one central MySQL table) are
+# accepted here; without this, mail to a zone's base domain is rejected by reject_unauth_destination (5.7.1).
+virtual_alias_domains=mysql:/etc/postfix/mysql-virtual-alias-domains.cf
+
+###############################################################################
+# MILTERS
+###############################################################################
+
+# DKIM signing milter (local OpenDKIM).
+milter_dkim=inet:127.0.0.1:8891
+
+# Tracking milter (open pixel, click links, custom headers).
+milter_track=inet:{{ milter_host }}:8901
+
+###############################################################################
+# INBOUND MILTERS (SMTP)
+###############################################################################
+
+# Milters for mail received over SMTP: none globally; the submission services in master.cf set them.
+# Separate several milters with ", ", e.g. inet:127.0.0.1:8891, inet:127.0.0.1:8892
+# smtpd_milters=
+
+###############################################################################
+# OUTBOUND MILTERS
+###############################################################################
+
+# The tracking milter (port 8901) adds the open pixel, rewrites links for click tracking and
+# sets custom headers; master.cf attaches it, with DKIM, to the submission services.
+
+# Milters for mail that does not arrive through smtpd (e.g. re-injected mail); none.
+# non_smtpd_milters=
+
+# If a milter is unavailable, accept the message (tempfail or reject are stricter).
+milter_default_action=accept
+
+# Milter protocol version 6 (OpenDKIM and current milters).
+milter_protocol=6
+
+# Allow address extensions such as user+tag@domain.com.
+recipient_delimiter=+
+
+# No relay domains (this server does not act as a backup MX for other domains).
+relay_domains=
+
+# Smarthost for all outbound mail, from RELAYHOST (local tests point it at Mailpit); empty = direct to each MX.
+{% if relayhost is defined and relayhost %}
+relayhost={{ relayhost }}
+{% else %}
+relayhost=
+{% endif %}
+
+# Rewrite sender addresses with a regexp map.
+sender_canonical_maps=regexp:/etc/postfix/sender_canonical
+
+# Rewrite only the envelope sender (MAIL FROM); the From: header is untouched.
+sender_canonical_classes=envelope_sender
+
+###############################################################################
+# QUEUE AND RETRIES
+###############################################################################
+
+# How often the queue manager scans the deferred queue.
+queue_run_delay=60s
+
+# Minimum time between delivery attempts of a deferred message (30 min: providers that
+# throttle a sender, such as 421 "try again later", recover in that window).
+minimal_backoff_time=1800s
+
+# Maximum time between delivery attempts.
+maximal_backoff_time=3600s
+
+# Maximum time a message stays in the queue: 2 days, so long throttling at a destination is absorbed
+# (about 40-48 attempts with the 1 h maximum backoff) without keeping undeliverable mail forever.
+maximal_queue_lifetime=172800s
+
+# Maximum time a bounce message stays in the queue (same as maximal_queue_lifetime).
+bounce_queue_lifetime=172800s
+
+###############################################################################
+# OTHER
+###############################################################################
+
+# Queue directory (default).
+queue_directory=/var/spool/postfix
+
+# Per-destination transports and the VERP bounce route (entrypoint.sh appends the per-recipient relay table).
+transport_maps=hash:/etc/postfix/transport,regexp:/etc/postfix/bounce_transport.regexp
+
+# Log verbosity for hosts listed in debug_peer_list (troubleshooting only).
+debug_peer_level=2
+
+###############################################################################
+# PERFORMANCE
+###############################################################################
+
+# Maximum number of concurrent Postfix processes; size it to the host (CPU, RAM, ulimit -n).
+default_process_limit=500
+
+# Maximum number of in-memory recipients in the queue manager (large campaigns).
+qmgr_message_recipient_limit=20000
+
+# Concurrent connections PER destination domain (the global ceiling is default_process_limit).
+# Kept moderate so slow or dead MXs do not pile up concurrent port-25 connections.
+default_destination_concurrency_limit=25
+
+# Maximum recipients per SMTP delivery; some servers accept fewer.
+default_destination_recipient_limit=50
+
+###############################################################################
+# THROTTLING
+###############################################################################
+
+# Concurrent connections per destination domain for the smtp transport (entrypoint.sh sets it from EGRESS_CONCURRENCY).
+smtp_destination_concurrency_limit=25
+
+# TCP connect timeout to the destination MX (Postfix default: 30s), so a dead MX frees its port-25 slot
+# quickly (entrypoint.sh sets it from EGRESS_CONNECT_TIMEOUT).
+smtp_connect_timeout=10s
+
+# Delay between deliveries to the same destination (0s = none).
+smtp_destination_rate_delay=0s
+
+# Extra in-memory recipient slots for the smtp transport (used when the scheduler preempts a message).
+smtp_extra_recipient_limit=1000

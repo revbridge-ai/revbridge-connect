@@ -1,0 +1,71 @@
+# Local test override (Docker on a laptop). NEVER in production.
+#   make dev   (= docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d)
+# - The MTA delivers everything to Mailpit (a fake inbox) instead of the internet.
+# - No Caddy/TLS: API on localhost:8001, tracking on :8002, image proxy on :8090,
+#   panel on :8088, Mailpit on :8025.
+# - Ports 25/587/465 are not published on the host.
+services:
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks: [edge, data]
+
+  # test webhook receiver (tools/dev/webhook_sink.py): http://webhook-sink:8099/<path>
+  webhook-sink:
+    image: revbridge/connect-app:${CONNECT_VERSION:-dev}
+    pull_policy: never
+    command: ["python", "/devtools/webhook_sink.py"]
+    volumes:
+      - ./tools/dev:/devtools:ro
+    networks: [edge]
+
+  # the test receiver lives on the internal network: only it is allowed past the SSRF guard
+  webhook-dispatcher:
+    environment:
+      WEBHOOK_ALLOW_PRIVATE_HOSTS: webhook-sink
+      WEBHOOK_RETRY_DELAY: "1"
+
+  # simulated sending node (node failover test): receives whatever a zone routes to it
+  node-sim:
+    image: axllent/mailpit:v1.27
+    networks: [edge, data]
+
+  mta:
+    environment:
+      RELAYHOST: "[mailpit]:1025"
+    ports: !reset []
+
+  api:
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      WEBHOOK_ALLOW_PRIVATE_HOSTS: webhook-sink
+
+  tracking:
+    ports:
+      - "127.0.0.1:8002:8002"
+
+  image-proxy:
+    ports:
+      - "127.0.0.1:8090:8080"
+
+  caddy:
+    profiles: ["prod-only"]
+
+  # local panel: the SAME image and Caddy rules as production, without TLS
+  # -> http://localhost:8088 (log in with the user printed by the bootstrap)
+  panel-dev:
+    image: revbridge/connect-caddy:${CONNECT_VERSION:-dev}
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: docker/panel.Dockerfile
+      target: caddy
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile.dev", "--adapter", "caddyfile"]
+    volumes:
+      - ./config/caddy:/etc/caddy:ro
+    ports:
+      - "127.0.0.1:8088:8088"
+    depends_on: [api]
+    networks: [edge]

@@ -1,0 +1,324 @@
+{
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Email delivery events updater",
+    "title": "Events Updater",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/batch": {
+      "post": {
+        "description": "Async dispatcher for /batch: same pattern as /postfix, offloading the\nsynchronous work to a worker thread so the event loop and probes stay free.",
+        "operationId": "ingest_batch_batch_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ingest Batch"
+      }
+    },
+    "/bounces/async": {
+      "post": {
+        "description": "Ingestion of ASYNCHRONOUS bounces (a late DSN delivered to the VERP Return-Path).\n\nSource: the MTA's Postfix `pipe` delivers the raw DSN email here, plus the\nVERP envelope recipient (header ``X-Bounce-Recipient``). Complements the\nsynchronous path (process_delivery_event), which only sees failures at send time.\n\nDecodes the VERP -> original recipient + rbm domain; reads the DSN ``Status``;\nand only suppresses on a HARD bounce (5.x.x except 5.7.x policy), reusing the\nsame ``apply_suppression_rules_for_bounce``. Missing/unreadable status => does\nNOT suppress (avoids over-suppression from malformed DSNs of remote MTAs).",
+        "operationId": "ingest_async_bounce_bounces_async_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ingest Async Bounce"
+      }
+    },
+    "/delivery/{message_id}": {
+      "get": {
+        "description": "Return the delivery status of one message (the synchronous MySQL work runs in a thread).",
+        "operationId": "get_delivery_status_delivery__message_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Delivery Status"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check"
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "health_live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Live"
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "health_ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Ready"
+      }
+    },
+    "/postfix": {
+      "post": {
+        "description": "Async dispatcher for /postfix: reads the body and hands the synchronous work\n(Redis + MySQL + CPU) to a worker thread, keeping the event loop free for the\nhealth probes. Without this offload, the loop would be blocked for the whole\nbatch and the liveness probe (/health/live) could time out.",
+        "operationId": "ingest_postfix_postfix_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ingest Postfix"
+      }
+    },
+    "/stats": {
+      "get": {
+        "description": "Return basic service statistics (the synchronous MySQL work runs in a thread).",
+        "operationId": "get_stats_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Stats"
+      }
+    },
+    "/status-mapping": {
+      "get": {
+        "description": "Show how Postfix DSN codes map to delivery statuses",
+        "operationId": "get_status_mapping_status_mapping_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Status Mapping"
+      }
+    },
+    "/suppression/test": {
+      "get": {
+        "description": "Show the suppression state of a domain (the synchronous MySQL work runs in a thread).",
+        "operationId": "test_suppression_system_suppression_test_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "domain_name",
+            "required": false,
+            "schema": {
+              "title": "Domain Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Suppression System"
+      }
+    },
+    "/suppressions": {
+      "get": {
+        "description": "Return the active suppressions (the synchronous MySQL work runs in a thread).",
+        "operationId": "get_suppressions_suppressions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "domain_name",
+            "required": false,
+            "schema": {
+              "title": "Domain Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "active_only",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Active Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Suppressions"
+      }
+    }
+  }
+}

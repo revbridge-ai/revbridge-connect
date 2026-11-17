@@ -1,0 +1,30 @@
+###############################################################################
+# SQL passdb/userdb for mailbox users (virtual_users). The file holds the database
+# password, so render.py writes it with mode 0600.
+#
+# Test authentication:
+# doveadm auth test user@shop.example
+###############################################################################
+
+# Authentication backend: MySQL.
+driver = mysql
+
+# Database connection (the MTA's read-only user).
+connect = host={{ mysql_host }} port={{ mysql_port | default(3306) }} dbname={{ mysql_database }} user={{ mailbox_user }} password={{ mailbox_password }}
+
+# Password hash scheme (never MD5 or PLAIN).
+default_pass_scheme = SHA512-CRYPT
+
+# Password lookup; only active accounts (active = 1) can log in.
+password_query = SELECT email as user, password FROM virtual_users WHERE email = '%u' AND active = 1
+
+# User lookup for delivery: home, uid, gid and the Maildir location of each user.
+user_query = SELECT CONCAT('/var/mail/', SUBSTRING_INDEX(email, '@', -1), '/', SUBSTRING_INDEX(email, '@', 1)) AS home, \
+              5000 AS uid, \
+              5000 AS gid, \
+              CONCAT('maildir:/var/mail/', SUBSTRING_INDEX(email, '@', -1), '/', SUBSTRING_INDEX(email, '@', 1)) AS mail \
+              FROM virtual_users \
+              WHERE email = '%u' AND active = 1
+
+# Lists every user (used for mailbox replication).
+iterate_query = SELECT email AS user FROM virtual_users WHERE active = 1

@@ -1,0 +1,11 @@
+# Accepts VERP bounce addresses on the rbm subdomains as "deliverable".
+# Without this, Postfix rejects them with 550 "User unknown in virtual mailbox table"
+# (the subdomain is a virtual_mailbox_domain, but there is no 'bounces@' mailbox).
+#
+# The returned value only has to be NON-EMPTY for the RCPT to be accepted: the actual
+# delivery is taken over by transport_maps (bounce_transport.regexp) and sent to the
+# 'bounce-handler' pipe, so this "mailbox path" is never used.
+#
+# recipient_delimiter=+ -> matches both 'bounces@<sub>' and 'bounces+<verp>@<sub>'.
+# Value = a non-empty constant (no capture is used; the delivery is taken over).
+/^bounces(\+.*)?@rbm[0-9]+\.[^@]+$/   bounce-sink/

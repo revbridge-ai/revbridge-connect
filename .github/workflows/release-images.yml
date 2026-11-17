@@ -1,0 +1,42 @@
+name: Release images
+
+# Builds the five images once per release and publishes them to GitHub Container Registry, so an
+# installation can pull them in a minute instead of building for ten:
+#   CONNECT_IMAGE_REGISTRY=ghcr.io/<org> CONNECT_VERSION=<tag without the v> scripts/deploy.sh root@IP
+# (scripts/install.sh falls back to building from source when an image is missing.)
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          REG="ghcr.io/${OWNER,,}"
+          build() { # name dockerfile [target]
+            local target=()
+            [ -n "${3:-}" ] && target=(--target "$3")
+            docker build -f "docker/$2" "${target[@]}" -t "${REG}/connect-$1:${VERSION}" .
+            docker push "${REG}/connect-$1:${VERSION}"
+          }
+          build app app.Dockerfile
+          build image-proxy image-proxy.Dockerfile
+          build milter milter.Dockerfile
+          build mta mta.Dockerfile
+          build caddy panel.Dockerfile caddy

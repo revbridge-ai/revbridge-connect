@@ -1,0 +1,109 @@
+# Public MX on port 25: receives asynchronous bounces (VERP), complaint reports (ARF) and mail
+# for the local domains. No milters here; outbound mail goes through the submission services below.
+smtp      inet  n       -       y       -       10      smtpd
+  -o syslog_name=postfix/smtp
+  -o smtpd_recipient_restrictions=permit_mynetworks,reject_unauth_destination
+  # The public MX (25) does not authenticate: with AUTH here any active key could send through
+  # this port without the milters (approved sender, suppression, VERP, quota). Authenticated
+  # sending only on 587/465. Opportunistic TLS (RFC 3207): a public MX must not require TLS.
+  -o smtpd_sasl_auth_enable=no
+  -o smtpd_tls_security_level=may
+  # per-client-IP limits (anvil) on the public ports
+  -o smtpd_client_connection_rate_limit={{ anvil_conn_rate | default(60) }}
+  -o smtpd_client_connection_count_limit={{ anvil_conn_count | default(20) }}
+  -o smtpd_client_message_rate_limit={{ anvil_msg_rate | default(600) }}
+
+# Outbound SMTP client (delivery to the destination MX or to another node).
+smtp      unix  -       -       y       -       100     smtp
+  -o syslog_name=postfix/smtp
+
+# Authenticated submission with STARTTLS (port 587): tracking and DKIM milters.
+# milter_macro_daemon_name=ORIGINATING marks the mail as outbound.
+submission inet n       -       y       -       20      smtpd
+  -o syslog_name=postfix/submission
+  -o milter_default_action=tempfail
+  -o smtpd_tls_security_level=encrypt
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_tls_auth_only=yes
+  -o smtpd_reject_unlisted_recipient=no
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_milters=$milter_track,$milter_dkim
+  # per-client-IP limits (anvil) on the public ports
+  -o smtpd_client_connection_rate_limit={{ anvil_conn_rate | default(60) }}
+  -o smtpd_client_connection_count_limit={{ anvil_conn_count | default(20) }}
+  -o smtpd_client_message_rate_limit={{ anvil_msg_rate | default(600) }}
+  -o smtpd_client_auth_rate_limit={{ anvil_auth_rate | default(30) }}
+
+# Authenticated submission with implicit TLS (wrapper mode, port 465): same milters as 587.
+submissions inet n       -       y       -       20      smtpd
+  -o syslog_name=postfix/submissions
+  -o milter_default_action=tempfail
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_reject_unlisted_recipient=no
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_milters=$milter_track,$milter_dkim
+  # per-client-IP limits (anvil) on the public ports
+  -o smtpd_client_connection_rate_limit={{ anvil_conn_rate | default(60) }}
+  -o smtpd_client_connection_count_limit={{ anvil_conn_count | default(20) }}
+  -o smtpd_client_message_rate_limit={{ anvil_msg_rate | default(600) }}
+  -o smtpd_client_auth_rate_limit={{ anvil_auth_rate | default(30) }}
+
+# INTERNAL submission for the queue (queue-processor). Same as 587 (SASL with the API key, same
+# milters), but only on the compose internal network (the port is not published) and without the
+# anvil limits of the public ports: the whole queue arrives from a few internal IPs.
+{{ queue_submission_port | default(2587) }} inet n       -       y       -       {{ queue_submission_maxproc | default(64) }}      smtpd
+  -o syslog_name=postfix/queue
+  -o milter_default_action=tempfail
+  -o smtpd_tls_security_level=may
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_reject_unlisted_recipient=no
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_milters=$milter_track,$milter_dkim
+
+# Internal pickup and cleanup services (defaults).
+pickup    unix  n       -       y       60      1       pickup
+cleanup   unix  n       -       y       -       0       cleanup
+
+# Standard 'relay' transport (SMTP client).
+relay     unix  -       -       y       -       50      smtp
+  -o syslog_name=postfix/relay
+
+# Internal Postfix helper services (defaults).
+proxymap  unix  -       -       n       -       -       proxymap
+tlsmgr    unix  -       -       y       1000    1       tlsmgr
+rewrite   unix  -       -       y       -       -       trivial-rewrite
+anvil     unix  -       -       y       -       1       anvil
+showq     unix  n       -       y       -       -       showq
+
+# Queue manager, flush and bounce services.
+qmgr      unix  n       -       n       300     1       qmgr
+flush     unix  n       -       y       1000    0       flush
+bounce    unix  -       -       y       -       0       bounce
+
+# LMTP client (delivery to Dovecot).
+lmtp      unix  -       -       y       -       -       lmtp
+
+# Local delivery and the error/retry services.
+local     unix  -       n       n       -       -       local
+retry     unix  -       -       y       -       -       error
+# discard: target of the 'discard:' transport (blackhole@discard.invalid, used by the discard
+# aliases such as noreply@/postmaster@/abuse@). Without this service the transport is
+# "mail transport unavailable" and the mail is DEFERRED instead of discarded.
+discard   unix  -       -       y       -       -       discard
+defer     unix  -       -       y       -       0       bounce
+
+# Shared SMTP connection cache (connection reuse towards the same destination).
+scache    unix  -       -       -       -       1       scache
+
+# ASYNCHRONOUS bounces (late DSNs delivered to the VERP Return-Path bounces+...@rbm...).
+# Routed here by transport_maps (bounce_transport.regexp). Gets the full VERP recipient
+# as ${recipient} and the DSN on stdin; the script forwards it to the events-updater
+# /bounces/async. chroot=n (it needs /usr/bin/curl and /usr/local/bin); runs as 'nobody'
+# (no privileges). Low volume, so one instance is enough.
+bounce-handler unix  -       n       n       -       -       pipe
+  flags=q user=nobody argv=/usr/local/bin/forward_async_bounce.sh ${recipient}
+
